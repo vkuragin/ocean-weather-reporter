@@ -2,6 +2,7 @@ package com.example.oceanweather.service;
 
 import com.example.oceanweather.config.AgentProperties;
 import com.example.oceanweather.model.WeatherRequest;
+import com.example.oceanweather.model.WeatherResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import org.slf4j.Logger;
@@ -18,7 +19,7 @@ import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
 @Service
-public class WeatherAgentService {
+public class WeatherAgentService implements WeatherReportAgent {
 
   private static final Logger log = LoggerFactory.getLogger(WeatherAgentService.class);
   private final OpenMeteoClient data;
@@ -116,6 +117,12 @@ public class WeatherAgentService {
       }
     } else System.out.println(report);
     return new Result(location.displayName(), report, delivery);
+  }
+
+  @Override
+  public WeatherResponse report(WeatherRequest request) {
+    Result result = createReport(request);
+    return new WeatherResponse(result.location(), result.report(), result.delivery());
   }
 
   @Retryable(
