@@ -1,6 +1,5 @@
 package com.example.oceanweather;
 
-import com.example.oceanweather.config.AgentProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.retry.annotation.EnableRetry;

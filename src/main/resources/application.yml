@@ -18,8 +18,8 @@ spring:
   mail:
     host: smtp.gmail.com
     port: 587
-    username: ${SMTP_USERNAME:}
-    password: ${SMTP_PASSWORD:}
+    username: ${WEATHER_REPORTER_SMTP_USERNAME:}
+    password: ${WEATHER_REPORTER_SMTP_PASSWORD:}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
@@ -31,13 +31,23 @@ server:
   port: 8080
 
 agent:
-  max-coastal-distance-km: 10
+  max-coastal-distance-km: 30
   suggestion-radius-km: 100
-  suggestion-count: 5
+  suggestion-count: 3
   retry:
     max-attempts: 3
     delay-ms: 1000
     multiplier: 1.5
+
+open-meteo:
+  geocoding-url: https://geocoding-api.open-meteo.com
+  weather-url: https://api.open-meteo.com
+  marine-url: https://marine-api.open-meteo.com
+  weather-forecast-days: 3
+  marine-forecast-days: 1
+  marine-cell-selection: sea
+  connect-timeout-ms: 3000
+  read-timeout-ms: 10000
 
 logging:
   level:

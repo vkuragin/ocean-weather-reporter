@@ -14,12 +14,12 @@ import org.springframework.web.client.RestClient;
 public class OpenStreetMapCoastalSuggestionProvider implements CoastalSuggestionProvider {
   private static final Logger log =
       LoggerFactory.getLogger(OpenStreetMapCoastalSuggestionProvider.class);
-  private final OpenMeteoClient data;
+  private final WeatherDataClient data;
   private final AgentProperties properties;
   private final RestClient rest;
 
   public OpenStreetMapCoastalSuggestionProvider(
-      OpenMeteoClient data, AgentProperties properties, RestClient.Builder builder) {
+      WeatherDataClient data, AgentProperties properties, RestClient.Builder builder) {
     this.data = data;
     this.properties = properties;
     this.rest = builder.build();

@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 public class WeatherAgentService implements WeatherReportAgent {
 
   private static final Logger log = LoggerFactory.getLogger(WeatherAgentService.class);
-  private final OpenMeteoClient data;
+  private final WeatherDataClient data;
   private final ChatClient chat;
   private final AgentProperties properties;
   private final Optional<JavaMailSender> mail;
@@ -31,7 +31,7 @@ public class WeatherAgentService implements WeatherReportAgent {
   private String from;
 
   public WeatherAgentService(
-      OpenMeteoClient data,
+      WeatherDataClient data,
       ChatClient chat,
       AgentProperties properties,
       Optional<JavaMailSender> mail,
@@ -73,14 +73,21 @@ public class WeatherAgentService implements WeatherReportAgent {
                   : String.join("; ", suggestions)));
     }
     JsonNode weather = data.forecast(location.latitude(), location.longitude());
+    String weatherCoordinates = coordinatePair(weather, location.latitude(), location.longitude());
+    String marineCoordinates = coordinatePair(marine, location.latitude(), location.longitude());
     String prompt =
-        "Create a concise, factual coastal weather report. Use SI units by default and show"
-            + " imperial equivalents in parentheses. Use only the supplied data, identify forecast"
-            + " time zone, report any missing fields honestly, and include source names and URLs."
-            + " Weather source: https://open-meteo.com/en/docs ; marine source:"
+        "Create a concise, factual coastal weather markdown report. Use SI units by default and"
+            + " show imperial equivalents in parentheses. Use only the supplied data, identify"
+            + " forecast time zone, report any missing fields honestly, and include source names"
+            + " and URLs. Include both source coordinate pairs in a Coordinates section. Weather"
+            + " source: https://open-meteo.com/en/docs ; marine source:"
             + " https://open-meteo.com/en/docs/marine-weather-api\n"
             + "Location: "
             + location.displayName()
+            + "\nWeather data coordinates (latitude, longitude): "
+            + weatherCoordinates
+            + "\nMarine/ocean data coordinates (latitude, longitude): "
+            + marineCoordinates
             + "\nDistance to nearest marine grid: "
             + Math.round(distance)
             + " km\nWeather API data: "
@@ -106,6 +113,15 @@ public class WeatherAgentService implements WeatherReportAgent {
       }
     } else System.out.println(report);
     return new Result(location.displayName(), report, delivery);
+  }
+
+  private static String coordinatePair(
+      JsonNode source, double fallbackLatitude, double fallbackLongitude) {
+    return "("
+        + source.path("latitude").asDouble(fallbackLatitude)
+        + ", "
+        + source.path("longitude").asDouble(fallbackLongitude)
+        + ")";
   }
 
   @Override

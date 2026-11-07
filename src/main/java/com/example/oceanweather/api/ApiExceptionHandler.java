@@ -1,5 +1,6 @@
 package com.example.oceanweather.api;
 
+import com.example.oceanweather.service.OpenMeteoClient.ExternalDataException;
 import com.example.oceanweather.service.WeatherAgentService.DeliveryException;
 import com.example.oceanweather.service.WeatherAgentService.LocationException;
 import java.util.Map;
@@ -26,6 +27,12 @@ public class ApiExceptionHandler {
 
   @ExceptionHandler(DeliveryException.class)
   ResponseEntity<Map<String, String>> delivery(DeliveryException ex) {
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .body(Map.of("error", ex.getMessage()));
+  }
+
+  @ExceptionHandler(ExternalDataException.class)
+  ResponseEntity<Map<String, String>> externalData(ExternalDataException ex) {
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
         .body(Map.of("error", ex.getMessage()));
   }

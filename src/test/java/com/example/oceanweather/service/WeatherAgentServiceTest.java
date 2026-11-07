@@ -53,6 +53,14 @@ class WeatherAgentServiceTest {
     assertEquals(1, forecastCalls.get());
     assertTrue(prompt.get().getContents().contains("SI units by default"));
     assertTrue(prompt.get().getContents().contains("marine-weather-api"));
+    assertTrue(
+        prompt.get().getContents().contains("Weather data coordinates (latitude, longitude):"));
+    assertTrue(
+        prompt
+            .get()
+            .getContents()
+            .contains("Marine/ocean data coordinates (latitude, longitude):"));
+    assertTrue(prompt.get().getContents().contains("(38.7, -9.1)"));
   }
 
   @Test
@@ -114,7 +122,7 @@ class WeatherAgentServiceTest {
   }
 
   private WeatherAgentService service(
-      OpenMeteoClient data,
+      WeatherDataClient data,
       AtomicReference<Prompt> prompt,
       List<String> suggestions,
       JavaMailSender mail) {
@@ -137,12 +145,11 @@ class WeatherAgentServiceTest {
     return output;
   }
 
-  private static class StubWeatherData extends OpenMeteoClient {
+  private static class StubWeatherData implements WeatherDataClient {
     private final boolean coastal;
     private final AtomicInteger forecastCalls;
 
     StubWeatherData(boolean coastal, AtomicInteger forecastCalls) {
-      super();
       this.coastal = coastal;
       this.forecastCalls = forecastCalls;
     }

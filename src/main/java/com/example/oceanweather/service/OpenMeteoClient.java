@@ -1,111 +1,138 @@
 package com.example.oceanweather.service;
 
+import com.example.oceanweather.config.OpenMeteoProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 @Component
-public class OpenMeteoClient {
-
+public class OpenMeteoClient implements WeatherDataClient {
   private final RestClient rest;
+  private final OpenMeteoProperties properties;
 
-  public OpenMeteoClient(RestClient.Builder builder) {
-    this.rest = builder.build();
+  public OpenMeteoClient(RestClient rest, OpenMeteoProperties properties) {
+    this.rest = rest;
+    this.properties = properties;
   }
 
-  protected OpenMeteoClient() {
-    this.rest = null;
-  }
-
+  @Override
   @Retryable(
-      retryFor = Exception.class,
+      retryFor = {ResourceAccessException.class, HttpServerErrorException.class},
       maxAttemptsExpression = "${agent.retry.max-attempts:3}",
       backoff =
           @Backoff(
               delayExpression = "${agent.retry.delay-ms:1000}",
               multiplierExpression = "${agent.retry.multiplier:2.0}"))
   public List<GeoLocation> geocode(String query, int count) {
+    if (query == null || query.isBlank()) {
+      throw new IllegalArgumentException("Geocoding query must not be blank");
+    }
+    if (count < 1 || count > 100) {
+      throw new IllegalArgumentException("Geocoding count must be between 1 and 100");
+    }
     JsonNode root =
-        rest.get()
-            .uri(
-                UriComponentsBuilder.fromUriString("https://geocoding-api.open-meteo.com/v1/search")
-                    .queryParam("name", query)
-                    .queryParam("count", count)
-                    .queryParam("language", "en")
-                    .queryParam("format", "json")
-                    .build()
-                    .toUri())
-            .retrieve()
-            .body(JsonNode.class);
+        get(
+            UriComponentsBuilder.fromUriString(properties.geocodingUrl() + "/v1/search")
+                .queryParam("name", query)
+                .queryParam("count", count)
+                .queryParam("language", "en")
+                .queryParam("format", "json")
+                .build()
+                .toUri(),
+            "geocoding");
     List<GeoLocation> result = new ArrayList<>();
-    if (root == null || !root.has("results")) return result;
-    for (JsonNode n : root.get("results"))
+    if (!root.has("results") || !root.get("results").isArray()) return result;
+    for (JsonNode node : root.get("results")) {
       result.add(
           new GeoLocation(
-              text(n, "name"),
-              text(n, "admin1"),
-              text(n, "country"),
-              n.path("latitude").asDouble(),
-              n.path("longitude").asDouble()));
+              text(node, "name"),
+              text(node, "admin1"),
+              text(node, "country"),
+              node.path("latitude").asDouble(),
+              node.path("longitude").asDouble()));
+    }
     return result;
   }
 
+  @Override
   @Retryable(
-      retryFor = Exception.class,
+      retryFor = {ResourceAccessException.class, HttpServerErrorException.class},
       maxAttemptsExpression = "${agent.retry.max-attempts:3}",
       backoff =
           @Backoff(
               delayExpression = "${agent.retry.delay-ms:1000}",
               multiplierExpression = "${agent.retry.multiplier:2.0}"))
-  public JsonNode forecast(double lat, double lon) {
-    return rest.get()
-        .uri(
-            UriComponentsBuilder.fromUriString("https://api.open-meteo.com/v1/forecast")
-                .queryParam("latitude", lat)
-                .queryParam("longitude", lon)
-                .queryParam(
-                    "current",
-                    "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m")
-                .queryParam(
-                    "daily",
-                    "temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max")
-                .queryParam("forecast_days", 3)
-                .queryParam("timezone", "auto")
-                .build()
-                .toUri())
-        .retrieve()
-        .body(JsonNode.class);
+  public JsonNode forecast(double latitude, double longitude) {
+    validateCoordinates(latitude, longitude);
+    return get(
+        UriComponentsBuilder.fromUriString(properties.weatherUrl() + "/v1/forecast")
+            .queryParam("latitude", latitude)
+            .queryParam("longitude", longitude)
+            .queryParam(
+                "current",
+                "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m")
+            .queryParam(
+                "daily",
+                "temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max")
+            .queryParam("temperature_unit", "celsius")
+            .queryParam("wind_speed_unit", "kmh")
+            .queryParam("forecast_days", properties.weatherForecastDays())
+            .queryParam("timezone", "auto")
+            .build()
+            .toUri(),
+        "weather forecast");
   }
 
+  @Override
   @Retryable(
-      retryFor = Exception.class,
+      retryFor = {ResourceAccessException.class, HttpServerErrorException.class},
       maxAttemptsExpression = "${agent.retry.max-attempts:3}",
       backoff =
           @Backoff(
               delayExpression = "${agent.retry.delay-ms:1000}",
               multiplierExpression = "${agent.retry.multiplier:2.0}"))
-  public JsonNode marine(double lat, double lon) {
-    return rest.get()
-        .uri(
-            UriComponentsBuilder.fromUriString("https://marine-api.open-meteo.com/v1/marine")
-                .queryParam("latitude", lat)
-                .queryParam("longitude", lon)
-                .queryParam(
-                    "hourly", "wave_height,wave_direction,wave_period,sea_surface_temperature")
-                .queryParam("forecast_days", 1)
-                .queryParam("cell_selection", "sea")
-                .build()
-                .toUri())
-        .retrieve()
-        .body(JsonNode.class);
+  public JsonNode marine(double latitude, double longitude) {
+    validateCoordinates(latitude, longitude);
+    return get(
+        UriComponentsBuilder.fromUriString(properties.marineUrl() + "/v1/marine")
+            .queryParam("latitude", latitude)
+            .queryParam("longitude", longitude)
+            .queryParam("hourly", "wave_height,wave_direction,wave_period,sea_surface_temperature")
+            .queryParam("forecast_days", properties.marineForecastDays())
+            .queryParam("cell_selection", properties.marineCellSelection())
+            .build()
+            .toUri(),
+        "marine forecast");
   }
 
-  private String text(JsonNode n, String field) {
-    return n.hasNonNull(field) ? n.get(field).asText() : "";
+  private JsonNode get(java.net.URI uri, String source) {
+    JsonNode body = rest.get().uri(uri).retrieve().body(JsonNode.class);
+    if (body == null || body.isNull()) {
+      throw new ExternalDataException("Empty response from Open-Meteo " + source);
+    }
+    return body;
+  }
+
+  private static void validateCoordinates(double latitude, double longitude) {
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw new IllegalArgumentException("Latitude or longitude is out of range");
+    }
+  }
+
+  private static String text(JsonNode node, String field) {
+    return node.hasNonNull(field) ? node.get(field).asText() : "";
+  }
+
+  public static class ExternalDataException extends RuntimeException {
+    public ExternalDataException(String message) {
+      super(message);
+    }
   }
 }

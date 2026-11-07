@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.example.oceanweather.config.OpenMeteoProperties;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +28,7 @@ class OpenMeteoClientTest {
   void setUp() {
     builder = RestClient.builder();
     server = MockRestServiceServer.bindTo(builder).build();
-    client = new OpenMeteoClient(builder);
+    client = new OpenMeteoClient(builder.build(), properties());
   }
 
   @AfterEach
@@ -67,6 +68,8 @@ class OpenMeteoClientTest {
         .andExpect(queryParam("latitude", "38.7"))
         .andExpect(queryParam("timezone", "auto"))
         .andExpect(queryParam("forecast_days", "3"))
+        .andExpect(queryParam("temperature_unit", "celsius"))
+        .andExpect(queryParam("wind_speed_unit", "kmh"))
         .andRespond(
             withSuccess(
                 """
@@ -111,5 +114,37 @@ class OpenMeteoClientTest {
         .andRespond(withServerError());
 
     assertThrows(RestClientResponseException.class, () -> client.forecast(38.7, -9.1));
+  }
+
+  @Test
+  void rejectsInvalidCoordinatesBeforeMakingRequest() {
+    assertThrows(IllegalArgumentException.class, () -> client.forecast(91, 0));
+  }
+
+  @Test
+  void rejectsBlankGeocodingQueryBeforeMakingRequest() {
+    assertThrows(IllegalArgumentException.class, () -> client.geocode(" ", 1));
+  }
+
+  @Test
+  void rejectsEmptyUpstreamResponse() {
+    server
+        .expect(
+            requestTo(org.hamcrest.Matchers.startsWith("https://api.open-meteo.com/v1/forecast?")))
+        .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+    assertThrows(OpenMeteoClient.ExternalDataException.class, () -> client.forecast(38.7, -9.1));
+  }
+
+  private static OpenMeteoProperties properties() {
+    return new OpenMeteoProperties(
+        "https://geocoding-api.open-meteo.com",
+        "https://api.open-meteo.com",
+        "https://marine-api.open-meteo.com",
+        3,
+        1,
+        "sea",
+        3000,
+        10000);
   }
 }

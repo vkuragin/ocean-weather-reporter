@@ -8,18 +8,33 @@ Set `OPENAI_API_KEY` and run `mvn spring-boot:run`. Email delivery is optional; 
 
 ## Request
 
-`POST /api/v1/weather/report`
+`POST /api/v1/weather/report` creates an asynchronous task and returns `200 OK` with a task ID and polling URL.
 
 ```json
 {"location":"Lisbon, Portugal","email":"optional@example.com"}
 ```
 
-The response contains the resolved location, report, and delivery status. A location outside `MAX_COASTAL_DISTANCE_KM` returns HTTP 422 and up to five nearby coastal suggestions. The suggestion search radius is configurable with `SUGGESTION_RADIUS_KM`.
+Example response:
+
+```json
+{"taskId":"...","statusUrl":"/api/v1/weather/tasks/...","status":"PENDING"}
+```
+
+Poll `GET /api/v1/weather/tasks/{taskId}`. The response moves through `PENDING`, `RUNNING`, `SUCCEEDED`, or `FAILED`; completed tasks include the report under `result`, and failed tasks include an `error` message. Unknown task IDs return 404. The task registry is in memory and is cleared when the process restarts. A location outside `MAX_COASTAL_DISTANCE_KM` becomes a failed task with up to five nearby coastal suggestions. The suggestion search radius is configurable with `SUGGESTION_RADIUS_KM`.
 
 ## Configuration
 
 `application.yml` supports configurable retry count, initial delay, and multiplier for web API and mail calls. Spring AI's model retry policy is configured under `spring.ai.retry`. OpenAI uses `OPENAI_MODEL` (default `gpt-4o-mini`).
 
+Open-Meteo endpoints and request behavior are configured under `open-meteo`: geocoding, weather, and marine base URLs; weather and marine forecast durations; marine cell selection; and connect/read timeouts. The client sends explicit Celsius and km/h weather units and retries only connection failures and upstream 5xx responses.
+
 The service logs request location, email presence (not the address), coastal-distance decisions, complete prompts, generated reports, and delivery results. Configure log retention/access appropriately because prompts and reports can contain user-requested content.
 
 The nearest marine grid-cell coordinate is used as an approximation of distance to shore. This service is informational; marine forecast grids and public geodata are not suitable for navigation or safety decisions.
+
+## TODO
+ - [x] Async post/status
+ - [ ] Web search and send email as AI tools
+ - [ ] AI Agent controls flow
+ - [ ] Normalize location name
+ - [ ] Store location/date for future similar requests (in-memory?)

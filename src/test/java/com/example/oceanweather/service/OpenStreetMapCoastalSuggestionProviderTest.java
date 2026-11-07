@@ -28,8 +28,18 @@ class OpenStreetMapCoastalSuggestionProviderTest {
         .andExpect(method(HttpMethod.POST))
         .andExpect(content().string(org.hamcrest.Matchers.containsString("around:300000,0.0,0.0")))
         .andRespond(withSuccess(overpassResponse(), MediaType.APPLICATION_JSON));
-    OpenMeteoClient marineData =
-        new OpenMeteoClient() {
+    WeatherDataClient marineData =
+        new WeatherDataClient() {
+          @Override
+          public List<GeoLocation> geocode(String query, int count) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public JsonNode forecast(double latitude, double longitude) {
+            throw new UnsupportedOperationException();
+          }
+
           @Override
           public JsonNode marine(double latitude, double longitude) {
             return JSON.createObjectNode().put("latitude", latitude).put("longitude", 0);

@@ -2,15 +2,19 @@ package com.example.oceanweather.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
-import com.example.oceanweather.service.WeatherAgentService.DeliveryException;
-import com.example.oceanweather.service.WeatherAgentService.LocationException;
-import com.example.oceanweather.service.WeatherReportAgent;
+import com.example.oceanweather.model.WeatherTaskAccepted;
+import com.example.oceanweather.model.WeatherTaskResponse;
+import com.example.oceanweather.model.WeatherTaskStatus;
+import com.example.oceanweather.service.WeatherTaskManager;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,17 +24,18 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
 class WeatherControllerTest {
+  private static final UUID TASK_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
   private LocalValidatorFactoryBean validator;
   private MockMvc mvc;
-  private RecordingAgent agent;
+  private RecordingTaskManager tasks;
 
   @BeforeEach
   void setUp() {
     validator = new LocalValidatorFactoryBean();
     validator.afterPropertiesSet();
-    agent = new RecordingAgent();
+    tasks = new RecordingTaskManager();
     mvc =
-        MockMvcBuilders.standaloneSetup(new WeatherController(agent))
+        MockMvcBuilders.standaloneSetup(new WeatherController(tasks))
             .setControllerAdvice(new ApiExceptionHandler())
             .setValidator(validator)
             .build();
@@ -42,7 +47,7 @@ class WeatherControllerTest {
   }
 
   @Test
-  void forwardsValidRequestAndReturnsAgentResponse() throws Exception {
+  void createsTaskAndReturnsIdentifier() throws Exception {
     mvc.perform(
             post("/api/v1/weather/report")
                 .contentType("application/json")
@@ -52,48 +57,39 @@ class WeatherControllerTest {
                     """
                         .trim()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.location").value("Lisbon, Portugal"))
-        .andExpect(jsonPath("$.report").value("Test marine weather report."))
-        .andExpect(jsonPath("$.delivery").value("email"));
+        .andExpect(jsonPath("$.taskId").value(TASK_ID.toString()))
+        .andExpect(jsonPath("$.statusUrl").value("/api/v1/weather/tasks/" + TASK_ID))
+        .andExpect(jsonPath("$.status").value("PENDING"));
 
-    assertEquals(new WeatherRequest("Lisbon", "reader@example.com"), agent.request.get());
+    assertEquals(new WeatherRequest("Lisbon", "reader@example.com"), tasks.request.get());
   }
 
   @Test
-  void mapsLocationFailureToUnprocessableEntity() throws Exception {
-    agent.failure = new LocationException("No coastal location found");
+  void returnsTaskStatusAndResult() throws Exception {
+    tasks.response =
+        new WeatherTaskResponse(
+            TASK_ID,
+            WeatherTaskStatus.SUCCEEDED,
+            new WeatherResponse("Lisbon, Portugal", "Sunny.", "stdout"),
+            null);
 
-    mvc.perform(
-            post("/api/v1/weather/report")
-                .contentType("application/json")
-                .content(
-                    """
-                    {"location":"Inland"}
-                    """
-                        .trim()))
-        .andExpect(status().isUnprocessableEntity())
-        .andExpect(jsonPath("$.error").value("No coastal location found"));
+    mvc.perform(get("/api/v1/weather/tasks/" + TASK_ID))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.taskId").value(TASK_ID.toString()))
+        .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+        .andExpect(jsonPath("$.result.report").value("Sunny."))
+        .andExpect(jsonPath("$.error").doesNotExist());
   }
 
   @Test
-  void mapsDeliveryFailureToServiceUnavailable() throws Exception {
-    agent.failure =
-        new DeliveryException("Email delivery failed after retries", new RuntimeException());
+  void returnsNotFoundForUnknownTask() throws Exception {
+    tasks.response = null;
 
-    mvc.perform(
-            post("/api/v1/weather/report")
-                .contentType("application/json")
-                .content(
-                    """
-                    {"location":"Lisbon","email":"reader@example.com"}
-                    """
-                        .trim()))
-        .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.error").value("Email delivery failed after retries"));
+    mvc.perform(get("/api/v1/weather/tasks/" + TASK_ID)).andExpect(status().isNotFound());
   }
 
   @Test
-  void rejectsInvalidRequestWithoutCallingAgent() throws Exception {
+  void rejectsInvalidRequestWithoutCreatingTask() throws Exception {
     mvc.perform(
             post("/api/v1/weather/report")
                 .contentType("application/json")
@@ -105,20 +101,24 @@ class WeatherControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error").exists());
 
-    assertNull(agent.request.get());
+    assertNull(tasks.request.get());
   }
 
-  private static final class RecordingAgent implements WeatherReportAgent {
+  private static final class RecordingTaskManager implements WeatherTaskManager {
     private final AtomicReference<WeatherRequest> request = new AtomicReference<>();
-    private RuntimeException failure;
+    private WeatherTaskResponse response =
+        new WeatherTaskResponse(TASK_ID, WeatherTaskStatus.PENDING, null, null);
 
     @Override
-    public WeatherResponse report(WeatherRequest request) {
+    public WeatherTaskAccepted submit(WeatherRequest request) {
       this.request.set(request);
-      if (failure != null) {
-        throw failure;
-      }
-      return new WeatherResponse("Lisbon, Portugal", "Test marine weather report.", "email");
+      return new WeatherTaskAccepted(
+          TASK_ID, "/api/v1/weather/tasks/" + TASK_ID, WeatherTaskStatus.PENDING);
+    }
+
+    @Override
+    public Optional<WeatherTaskResponse> status(UUID taskId) {
+      return Optional.ofNullable(response);
     }
   }
 }
