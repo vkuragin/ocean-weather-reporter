@@ -3,38 +3,42 @@ spring:
     name: ocean-weather-reporter
   ai:
     retry:
-      max-attempts: ${AI_RETRY_MAX_ATTEMPTS:3}
+      max-attempts: 3
       backoff:
-        initial-interval: ${AI_RETRY_INITIAL_INTERVAL:1s}
-        multiplier: ${AI_RETRY_MULTIPLIER:2}
-        max-interval: ${AI_RETRY_MAX_INTERVAL:10s}
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 10s
     openai:
       api-key: ${OPENAI_API_KEY:}
       chat:
         options:
-          model: ${OPENAI_MODEL:gpt-4o-mini}
+          model: gpt-4o-mini
           temperature: 0.2
+
   mail:
-    host: ${SMTP_HOST:}
-    port: ${SMTP_PORT:587}
+    host: smtp.gmail.com
+    port: 587
     username: ${SMTP_USERNAME:}
     password: ${SMTP_PASSWORD:}
     properties:
-      mail.smtp.auth: ${SMTP_AUTH:true}
-      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 5000
       mail.smtp.writetimeout: 5000
+
 server:
-  port: ${PORT:8080}
+  port: 8080
+
 agent:
-  max-coastal-distance-km: ${MAX_COASTAL_DISTANCE_KM:50}
-  suggestion-radius-km: ${SUGGESTION_RADIUS_KM:300}
-  suggestion-count: ${SUGGESTION_COUNT:5}
+  max-coastal-distance-km: 10
+  suggestion-radius-km: 100
+  suggestion-count: 5
   retry:
-    max-attempts: ${RETRY_MAX_ATTEMPTS:3}
-    delay-ms: ${RETRY_DELAY_MS:1000}
-    multiplier: ${RETRY_MULTIPLIER:2.0}
+    max-attempts: 3
+    delay-ms: 1000
+    multiplier: 1.5
+
 logging:
   level:
     com.example.oceanweather: INFO

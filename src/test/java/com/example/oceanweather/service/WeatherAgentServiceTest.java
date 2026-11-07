@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -126,7 +127,7 @@ class WeatherAgentServiceTest {
         data,
         ChatClient.builder(model).build(),
         new AgentProperties(50, 300, 5, new AgentProperties.Retry(1, 0, 1.0)),
-        mail,
+        Optional.ofNullable(mail),
         location -> suggestions);
   }
 

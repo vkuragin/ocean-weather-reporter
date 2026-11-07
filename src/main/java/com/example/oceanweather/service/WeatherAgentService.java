@@ -5,11 +5,10 @@ import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -25,27 +24,17 @@ public class WeatherAgentService implements WeatherReportAgent {
   private final OpenMeteoClient data;
   private final ChatClient chat;
   private final AgentProperties properties;
-  private final JavaMailSender mail;
+  private final Optional<JavaMailSender> mail;
   private final CoastalSuggestionProvider coastalSuggestions;
 
   @Value("${spring.mail.username:}")
   private String from;
 
-  @Autowired
   public WeatherAgentService(
-      OpenMeteoClient data,
-      ChatClient.Builder builder,
-      AgentProperties properties,
-      ObjectProvider<JavaMailSender> mail,
-      CoastalSuggestionProvider coastalSuggestions) {
-    this(data, builder.build(), properties, mail.getIfAvailable(), coastalSuggestions);
-  }
-
-  WeatherAgentService(
       OpenMeteoClient data,
       ChatClient chat,
       AgentProperties properties,
-      JavaMailSender mail,
+      Optional<JavaMailSender> mail,
       CoastalSuggestionProvider coastalSuggestions) {
     this.data = data;
     this.chat = chat;
@@ -103,7 +92,7 @@ public class WeatherAgentService implements WeatherReportAgent {
     log.info("Generated report for {}: {}", location.displayName(), report);
     String delivery = "stdout";
     if (request.email() != null && !request.email().isBlank()) {
-      if (mail == null) {
+      if (mail.isEmpty()) {
         System.out.println(report);
         delivery = "stdout (email not configured)";
       } else {
@@ -138,7 +127,7 @@ public class WeatherAgentService implements WeatherReportAgent {
     message.setTo(to);
     message.setSubject("Coastal weather report: " + location);
     message.setText(report);
-    mail.send(message);
+    mail.orElseThrow().send(message);
     log.info("Report email sent to {} for {}", to, location);
   }
 
