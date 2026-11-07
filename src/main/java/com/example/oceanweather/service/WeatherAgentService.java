@@ -3,13 +3,12 @@ package com.example.oceanweather.service;
 import com.example.oceanweather.config.AgentProperties;
 import com.example.oceanweather.model.WeatherRequest;
 import com.fasterxml.jackson.databind.JsonNode;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -17,7 +16,6 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Recover;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 
 @Service
 public class WeatherAgentService {
@@ -27,19 +25,32 @@ public class WeatherAgentService {
   private final ChatClient chat;
   private final AgentProperties properties;
   private final JavaMailSender mail;
+  private final CoastalSuggestionProvider coastalSuggestions;
 
   @Value("${spring.mail.username:}")
   private String from;
 
+  @Autowired
   public WeatherAgentService(
       OpenMeteoClient data,
       ChatClient.Builder builder,
       AgentProperties properties,
-      ObjectProvider<JavaMailSender> mail) {
+      ObjectProvider<JavaMailSender> mail,
+      CoastalSuggestionProvider coastalSuggestions) {
+    this(data, builder.build(), properties, mail.getIfAvailable(), coastalSuggestions);
+  }
+
+  WeatherAgentService(
+      OpenMeteoClient data,
+      ChatClient chat,
+      AgentProperties properties,
+      JavaMailSender mail,
+      CoastalSuggestionProvider coastalSuggestions) {
     this.data = data;
-    this.chat = builder.build();
+    this.chat = chat;
     this.properties = properties;
-    this.mail = mail.getIfAvailable();
+    this.mail = mail;
+    this.coastalSuggestions = coastalSuggestions;
   }
 
   public Result createReport(WeatherRequest request) {
@@ -61,7 +72,7 @@ public class WeatherAgentService {
         distance,
         properties.maxCoastalDistanceKm());
     if (!Double.isFinite(distance) || distance > properties.maxCoastalDistanceKm()) {
-      List<String> suggestions = nearestCoastalPlaces(location);
+      List<String> suggestions = coastalSuggestions.nearestCoastalPlaces(location);
       throw new LocationException(
           location.displayName()
               + " is not within "
@@ -107,75 +118,6 @@ public class WeatherAgentService {
     return new Result(location.displayName(), report, delivery);
   }
 
-  private List<String> nearestCoastalPlaces(GeoLocation origin) {
-    // OpenStreetMap Overpass returns nearby populated places; marine grid displacement ranks
-    // coastal candidates.
-    String query =
-        "[out:json][timeout:20];(node(around:"
-            + (properties.suggestionRadiusKm() * 1000)
-            + ","
-            + origin.latitude()
-            + ","
-            + origin.longitude()
-            + ")[place~\"city|town|village|hamlet\"];);out body 80;";
-    JsonNode root = null;
-    for (int attempt = 1; attempt <= properties.retry().maxAttempts(); attempt++) {
-      try {
-        root =
-            RestClient.create()
-                .post()
-                .uri("https://overpass-api.de/api/interpreter")
-                .body(query)
-                .retrieve()
-                .body(JsonNode.class);
-        break;
-      } catch (RuntimeException ex) {
-        if (attempt == properties.retry().maxAttempts()) {
-          log.warn("Nearby-place search failed after {} attempts", attempt, ex);
-          return List.of();
-        }
-        try {
-          Thread.sleep(
-              (long)
-                  (properties.retry().delayMs()
-                      * Math.pow(properties.retry().multiplier(), attempt - 1)));
-        } catch (InterruptedException interrupted) {
-          Thread.currentThread().interrupt();
-          return List.of();
-        }
-      }
-    }
-    List<Place> candidates = new ArrayList<>();
-    if (root != null && root.has("elements"))
-      for (JsonNode e : root.get("elements")) {
-        String name = e.path("tags").path("name").asText("");
-        if (!name.isBlank() && e.has("lat") && e.has("lon"))
-          candidates.add(new Place(name, e.get("lat").asDouble(), e.get("lon").asDouble()));
-      }
-    return candidates.stream()
-        .map(
-            p -> {
-              try {
-                JsonNode m = data.marine(p.lat, p.lon);
-                double d =
-                    distanceKm(
-                        p.lat,
-                        p.lon,
-                        m.path("latitude").asDouble(Double.NaN),
-                        m.path("longitude").asDouble(Double.NaN));
-                return new Ranked(p.name, d);
-              } catch (RuntimeException ex) {
-                log.warn("Could not evaluate coastal suggestion {}", p.name);
-                return new Ranked(p.name, Double.POSITIVE_INFINITY);
-              }
-            })
-        .filter(p -> p.distance <= properties.maxCoastalDistanceKm())
-        .sorted(Comparator.comparingDouble(Ranked::distance))
-        .limit(properties.suggestionCount())
-        .map(p -> p.name + " (" + Math.round(p.distance) + " km from shore)")
-        .toList();
-  }
-
   @Retryable(
       retryFor = Exception.class,
       maxAttemptsExpression = "${agent.retry.max-attempts:3}",
@@ -215,10 +157,6 @@ public class WeatherAgentService {
             + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
     return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
-
-  private record Place(String name, double lat, double lon) {}
-
-  private record Ranked(String name, double distance) {}
 
   public record Result(String location, String report, String delivery) {}
 

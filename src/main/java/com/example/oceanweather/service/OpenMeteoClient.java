@@ -12,7 +12,15 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 public class OpenMeteoClient {
 
-  private final RestClient rest = RestClient.create();
+  private final RestClient rest;
+
+  public OpenMeteoClient(RestClient.Builder builder) {
+    this.rest = builder.build();
+  }
+
+  protected OpenMeteoClient() {
+    this.rest = null;
+  }
 
   @Retryable(
       retryFor = Exception.class,
