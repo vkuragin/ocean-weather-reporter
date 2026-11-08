@@ -84,7 +84,7 @@ class WeatherAgentServiceTest {
   }
 
   @Test
-  void sendsReportByEmailWhenSenderIsConfigured() throws Exception {
+  void doesNotClaimEmailDeliveryWhenModelDoesNotInvokeTool() throws Exception {
     AtomicReference<SimpleMailMessage> sentMessage = new AtomicReference<>();
     JavaMailSender sender = new CapturingMailSender(sentMessage);
     WeatherAgentService service =
@@ -97,14 +97,12 @@ class WeatherAgentServiceTest {
     WeatherAgentService.Result result =
         service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
 
-    assertEquals("email", result.delivery());
-    assertEquals("reader@example.com", sentMessage.get().getTo()[0]);
-    assertEquals("Coastal weather report: Lisbon, Portugal", sentMessage.get().getSubject());
-    assertEquals(REPORT, sentMessage.get().getText());
+    assertEquals("email-not-sent", result.delivery());
+    assertEquals(null, sentMessage.get());
   }
 
   @Test
-  void fallsBackToStandardOutputWhenEmailIsNotConfigured() throws Exception {
+  void printsReportWhenEmailToolIsNotInvoked() throws Exception {
     WeatherAgentService service =
         service(
             new StubWeatherData(true, new AtomicInteger()),
@@ -113,8 +111,7 @@ class WeatherAgentServiceTest {
             null);
     ByteArrayOutputStream output = captureOutput();
 
-    WeatherAgentService.Result result =
-        service.createReport(new WeatherRequest("Lisbon", ""));
+    WeatherAgentService.Result result = service.createReport(new WeatherRequest("Lisbon", ""));
 
     assertEquals("stdout", result.delivery());
     assertTrue(output.toString(StandardCharsets.UTF_8).contains(REPORT));
@@ -134,7 +131,7 @@ class WeatherAgentServiceTest {
         data,
         ChatClient.builder(model).build(),
         new AgentProperties(50, 300, 5, new AgentProperties.Retry(1, 0, 1.0)),
-        mail,
+        new EmailTool(new EmailDeliveryService(mail, "")),
         location -> suggestions);
   }
 

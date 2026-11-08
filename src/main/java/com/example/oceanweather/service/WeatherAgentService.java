@@ -5,15 +5,11 @@ import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.retry.annotation.Backoff;
-import org.springframework.retry.annotation.Recover;
-import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,11 +20,9 @@ public class WeatherAgentService implements WeatherReportAgent {
   private final WeatherDataClient weatherDataClient;
   private final ChatClient openAiChatClient;
   private final AgentProperties agentProperties;
-  private final JavaMailSender mailSender;
+  private final EmailTool emailTool;
   private final CoastalSuggestionProvider coastalSuggestionProvider;
 
-  @Value("${spring.mail.username:}")
-  private String from;
   @Value("${spring.mail.enabled:true}")
   private boolean mailEnabled = true;
 
@@ -36,12 +30,12 @@ public class WeatherAgentService implements WeatherReportAgent {
       WeatherDataClient weatherDataClient,
       ChatClient openAiChatClient,
       AgentProperties agentProperties,
-      JavaMailSender mailSender,
+      EmailTool emailTool,
       CoastalSuggestionProvider coastalSuggestionProvider) {
     this.weatherDataClient = weatherDataClient;
     this.openAiChatClient = openAiChatClient;
     this.agentProperties = agentProperties;
-    this.mailSender = mailSender;
+    this.emailTool = emailTool;
     this.coastalSuggestionProvider = coastalSuggestionProvider;
   }
 
@@ -77,6 +71,7 @@ public class WeatherAgentService implements WeatherReportAgent {
     JsonNode weather = weatherDataClient.forecast(location.latitude(), location.longitude());
     String weatherCoordinates = coordinatePair(weather, location.latitude(), location.longitude());
     String marineCoordinates = coordinatePair(marine, location.latitude(), location.longitude());
+    boolean emailRequested = StringUtils.hasLength(request.email()) && mailEnabled;
     String prompt =
         "Create a concise, factual coastal weather markdown report. Use SI units by default and"
             + " show imperial equivalents in parentheses. Use only the supplied data, identify"
@@ -96,19 +91,43 @@ public class WeatherAgentService implements WeatherReportAgent {
             + weather
             + "\nMarine API data: "
             + marine;
+    if (emailRequested) {
+      prompt +=
+          "\nAn email was explicitly requested. After preparing the complete report, call the"
+              + " send_email tool exactly once with the report and resolved location.";
+    }
     log.info("AI prompt prepared: {}", prompt);
-    String report = openAiChatClient.prompt().user(prompt).call().content();
+    EmailTool.DeliveryState deliveryState = new EmailTool.DeliveryState();
+    String report;
+    if (emailRequested) {
+      report =
+          openAiChatClient
+              .prompt()
+              .user(prompt)
+              .tools(emailTool)
+              .toolContext(
+                  Map.of("requestedEmail", request.email(), "deliveryState", deliveryState))
+              .call()
+              .content();
+    } else {
+      report = openAiChatClient.prompt().user(prompt).call().content();
+    }
     log.info("Generated report for {}: {}", location.displayName(), report);
 
     String delivery = "stdout";
-    if (StringUtils.hasLength(request.email()) && mailEnabled) {
-        try {
-          sendEmail(request.email(), location.displayName(), report);
-          delivery = "email";
-        } catch (DeliveryException ex) {
-          delivery = "email-failed";
-          printToConsole("Failed to send email: " + ex.getMessage() + ". Printing report to console:\n" + report);
-        }
+    if (emailRequested && deliveryState.sentSuccessfully()) {
+      delivery = "email";
+    } else if (emailRequested && deliveryState.error() != null) {
+      delivery = "email-failed";
+      printToConsole(
+          "Failed to send email: "
+              + deliveryState.error()
+              + ". Printing report to console:\n"
+              + report);
+    } else if (emailRequested) {
+      delivery = "email-not-sent";
+      printToConsole(
+          "The AI did not invoke the email tool. Printing report to console:\n" + report);
     }
     if (delivery.equals("stdout")) {
       printToConsole("Email not configured or disabled. Printing report to console:\n" + report);
@@ -133,39 +152,6 @@ public class WeatherAgentService implements WeatherReportAgent {
   public WeatherResponse report(WeatherRequest request) {
     Result result = createReport(request);
     return new WeatherResponse(result.location(), result.report(), result.delivery());
-  }
-
-  @Retryable(
-      retryFor = Exception.class,
-      maxAttemptsExpression = "${agent.retry.max-attempts:3}",
-      backoff =
-          @Backoff(
-              delayExpression = "${agent.retry.delay-ms:1000}",
-              multiplierExpression = "${agent.retry.multiplier:2.0}"))
-  public void sendEmail(String to, String location, String report) {
-    if (mailSender == null) {
-      log.info("Mail sender not configured, skipping...");
-      return;
-    }
-    SimpleMailMessage message = new SimpleMailMessage();
-    if (from != null && !from.isBlank()) message.setFrom(from);
-    message.setTo(to);
-    message.setSubject("Coastal weather report: " + location);
-    message.setText(report);
-    mailSender.send(message);
-    log.info("Report email sent to {} for {}", to, location);
-  }
-
-  @Recover
-  public void emailFailed(Exception ex, String to, String location, String report) {
-    log.error(
-        "Email delivery failed after configured retries for recipient={} location={}",
-        to,
-        location,
-        ex);
-    System.out.println(report);
-    throw new DeliveryException(
-        "Email delivery failed after retries; report was logged to application output.", ex);
   }
 
   private static double distanceKm(double lat1, double lon1, double lat2, double lon2) {
