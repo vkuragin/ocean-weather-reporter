@@ -14,7 +14,7 @@ import org.springframework.web.client.RestClient;
 public class Config {
 
   @Bean
-  public ChatClient chatClient(ChatClient.Builder builder) {
+  public ChatClient openAiChatClient(ChatClient.Builder builder) {
     return builder.build();
   }
 

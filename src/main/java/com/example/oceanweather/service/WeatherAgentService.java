@@ -5,7 +5,6 @@ import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -16,31 +15,34 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Recover;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class WeatherAgentService implements WeatherReportAgent {
 
   private static final Logger log = LoggerFactory.getLogger(WeatherAgentService.class);
-  private final WeatherDataClient data;
-  private final ChatClient chat;
-  private final AgentProperties properties;
-  private final Optional<JavaMailSender> mail;
-  private final CoastalSuggestionProvider coastalSuggestions;
+  private final WeatherDataClient weatherDataClient;
+  private final ChatClient openAiChatClient;
+  private final AgentProperties agentProperties;
+  private final JavaMailSender mailSender;
+  private final CoastalSuggestionProvider coastalSuggestionProvider;
 
   @Value("${spring.mail.username:}")
   private String from;
+  @Value("${spring.mail.enabled:true}")
+  private boolean mailEnabled = true;
 
   public WeatherAgentService(
-      WeatherDataClient data,
-      ChatClient chat,
-      AgentProperties properties,
-      Optional<JavaMailSender> mail,
-      CoastalSuggestionProvider coastalSuggestions) {
-    this.data = data;
-    this.chat = chat;
-    this.properties = properties;
-    this.mail = mail;
-    this.coastalSuggestions = coastalSuggestions;
+      WeatherDataClient weatherDataClient,
+      ChatClient openAiChatClient,
+      AgentProperties agentProperties,
+      JavaMailSender mailSender,
+      CoastalSuggestionProvider coastalSuggestionProvider) {
+    this.weatherDataClient = weatherDataClient;
+    this.openAiChatClient = openAiChatClient;
+    this.agentProperties = agentProperties;
+    this.mailSender = mailSender;
+    this.coastalSuggestionProvider = coastalSuggestionProvider;
   }
 
   public Result createReport(WeatherRequest request) {
@@ -49,10 +51,10 @@ public class WeatherAgentService implements WeatherReportAgent {
         request.location(),
         request.email() != null);
     GeoLocation location =
-        data.geocode(request.location(), 1).stream()
+        weatherDataClient.geocode(request.location(), 1).stream()
             .findFirst()
             .orElseThrow(() -> new LocationException("Location not found: " + request.location()));
-    JsonNode marine = data.marine(location.latitude(), location.longitude());
+    JsonNode marine = weatherDataClient.marine(location.latitude(), location.longitude());
     double seaLat = marine.path("latitude").asDouble(Double.NaN),
         seaLon = marine.path("longitude").asDouble(Double.NaN);
     double distance = distanceKm(location.latitude(), location.longitude(), seaLat, seaLon);
@@ -60,19 +62,19 @@ public class WeatherAgentService implements WeatherReportAgent {
         "Coastal decision: location={}, seaGridDistanceKm={}, maxDistanceKm={}",
         location.displayName(),
         distance,
-        properties.maxCoastalDistanceKm());
-    if (!Double.isFinite(distance) || distance > properties.maxCoastalDistanceKm()) {
-      List<String> suggestions = coastalSuggestions.nearestCoastalPlaces(location);
+        agentProperties.maxCoastalDistanceKm());
+    if (!Double.isFinite(distance) || distance > agentProperties.maxCoastalDistanceKm()) {
+      List<String> suggestions = coastalSuggestionProvider.nearestCoastalPlaces(location);
       throw new LocationException(
           location.displayName()
               + " is not within "
-              + properties.maxCoastalDistanceKm()
+              + agentProperties.maxCoastalDistanceKm()
               + " km of an ocean or sea. Nearest coastal suggestions: "
               + (suggestions.isEmpty()
                   ? "none found within the configured search radius"
                   : String.join("; ", suggestions)));
     }
-    JsonNode weather = data.forecast(location.latitude(), location.longitude());
+    JsonNode weather = weatherDataClient.forecast(location.latitude(), location.longitude());
     String weatherCoordinates = coordinatePair(weather, location.latitude(), location.longitude());
     String marineCoordinates = coordinatePair(marine, location.latitude(), location.longitude());
     String prompt =
@@ -95,24 +97,27 @@ public class WeatherAgentService implements WeatherReportAgent {
             + "\nMarine API data: "
             + marine;
     log.info("AI prompt prepared: {}", prompt);
-    String report = chat.prompt().user(prompt).call().content();
+    String report = openAiChatClient.prompt().user(prompt).call().content();
     log.info("Generated report for {}: {}", location.displayName(), report);
+
     String delivery = "stdout";
-    if (request.email() != null && !request.email().isBlank()) {
-      if (mail.isEmpty()) {
-        System.out.println(report);
-        delivery = "stdout (email not configured)";
-      } else {
+    if (StringUtils.hasLength(request.email()) && mailEnabled) {
         try {
           sendEmail(request.email(), location.displayName(), report);
           delivery = "email";
         } catch (DeliveryException ex) {
-          System.out.println(report);
-          delivery = "stdout (email failed)";
+          delivery = "email-failed";
+          printToConsole("Failed to send email: " + ex.getMessage() + ". Printing report to console:\n" + report);
         }
-      }
-    } else System.out.println(report);
+    }
+    if (delivery.equals("stdout")) {
+      printToConsole("Email not configured or disabled. Printing report to console:\n" + report);
+    }
     return new Result(location.displayName(), report, delivery);
+  }
+
+  private void printToConsole(String message) {
+    System.out.println(message);
   }
 
   private static String coordinatePair(
@@ -138,12 +143,16 @@ public class WeatherAgentService implements WeatherReportAgent {
               delayExpression = "${agent.retry.delay-ms:1000}",
               multiplierExpression = "${agent.retry.multiplier:2.0}"))
   public void sendEmail(String to, String location, String report) {
+    if (mailSender == null) {
+      log.info("Mail sender not configured, skipping...");
+      return;
+    }
     SimpleMailMessage message = new SimpleMailMessage();
     if (from != null && !from.isBlank()) message.setFrom(from);
     message.setTo(to);
     message.setSubject("Coastal weather report: " + location);
     message.setText(report);
-    mail.orElseThrow().send(message);
+    mailSender.send(message);
     log.info("Report email sent to {} for {}", to, location);
   }
 

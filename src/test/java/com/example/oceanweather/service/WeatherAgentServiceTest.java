@@ -12,7 +12,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -115,9 +114,9 @@ class WeatherAgentServiceTest {
     ByteArrayOutputStream output = captureOutput();
 
     WeatherAgentService.Result result =
-        service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
+        service.createReport(new WeatherRequest("Lisbon", ""));
 
-    assertEquals("stdout (email not configured)", result.delivery());
+    assertEquals("stdout", result.delivery());
     assertTrue(output.toString(StandardCharsets.UTF_8).contains(REPORT));
   }
 
@@ -135,7 +134,7 @@ class WeatherAgentServiceTest {
         data,
         ChatClient.builder(model).build(),
         new AgentProperties(50, 300, 5, new AgentProperties.Retry(1, 0, 1.0)),
-        Optional.ofNullable(mail),
+        mail,
         location -> suggestions);
   }
 

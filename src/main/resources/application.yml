@@ -16,6 +16,7 @@ spring:
           temperature: 0.2
 
   mail:
+    enabled: true
     host: smtp.gmail.com
     port: 587
     username: ${WEATHER_REPORTER_SMTP_USERNAME:}
