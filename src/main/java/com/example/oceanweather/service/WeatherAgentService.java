@@ -2,10 +2,8 @@ package com.example.oceanweather.service;
 
 import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -33,18 +31,13 @@ public class WeatherAgentService implements WeatherReportAgent {
        Include the report in the output.
       """;
 
-  private final ChatClient openAiChatClient;
-  private final WeatherSearchTool weatherSearchTool;
-  private final EmailTool emailTool;
+  private final WeatherReportGenerator reportGenerator;
 
   @Value("${spring.mail.enabled:true}")
   private boolean mailEnabled = true;
 
-  public WeatherAgentService(
-      ChatClient openAiChatClient, WeatherSearchTool weatherSearchTool, EmailTool emailTool) {
-    this.openAiChatClient = openAiChatClient;
-    this.weatherSearchTool = weatherSearchTool;
-    this.emailTool = emailTool;
+  public WeatherAgentService(WeatherReportGenerator reportGenerator) {
+    this.reportGenerator = reportGenerator;
   }
 
   @Override
@@ -69,21 +62,7 @@ public class WeatherAgentService implements WeatherReportAgent {
     WeatherSearchTool.SearchState searchState = new WeatherSearchTool.SearchState();
     EmailTool.DeliveryState deliveryState = new EmailTool.DeliveryState();
 
-    String report =
-           openAiChatClient
-                    .prompt()
-                    .user(prompt)
-                    .tools(weatherSearchTool, emailTool)
-                    .toolContext(
-                            Map.of(
-                                    "weatherSearchState",
-                                    searchState,
-                                    "requestedEmail",
-                                    request.email() != null ? request.email() : "",
-                                    "deliveryState",
-                                    deliveryState))
-                    .call()
-                    .content();
+    String report = reportGenerator.generate(prompt, searchState, deliveryState, request.email());
 
     if (searchState.failure() != null) {
       throw searchState.failure();

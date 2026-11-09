@@ -1,5 +1,9 @@
 package com.example.oceanweather.config;
 
+import com.example.oceanweather.service.EmailTool;
+import com.example.oceanweather.service.WeatherReportGenerator;
+import com.example.oceanweather.service.WeatherSearchTool;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -16,6 +20,26 @@ public class Config {
   @Bean
   public ChatClient openAiChatClient(ChatClient.Builder builder) {
     return builder.build();
+  }
+
+  @Bean
+  public WeatherReportGenerator weatherReportGenerator(
+      ChatClient openAiChatClient, WeatherSearchTool weatherSearchTool, EmailTool emailTool) {
+    return (prompt, searchState, deliveryState, requestedEmail) ->
+        openAiChatClient
+            .prompt()
+            .user(prompt)
+            .tools(weatherSearchTool, emailTool)
+            .toolContext(
+                Map.of(
+                    "weatherSearchState",
+                    searchState,
+                    "requestedEmail",
+                    requestedEmail != null ? requestedEmail : "",
+                    "deliveryState",
+                    deliveryState))
+            .call()
+            .content();
   }
 
   @Bean

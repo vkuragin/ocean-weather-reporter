@@ -1,32 +1,26 @@
 package com.example.oceanweather.service;
 
-import com.example.oceanweather.config.AgentProperties;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.example.oceanweather.model.WeatherRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-
-import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class WeatherAgentServiceTest {
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -39,11 +33,9 @@ class WeatherAgentServiceTest {
   }
 
   @Test
-  void generatesReportAfterAIInvokesWeatherSearchTool() {
-    AtomicReference<Prompt> prompt = new AtomicReference<>();
-    AtomicInteger forecastCalls = new AtomicInteger();
-    WeatherAgentService service =
-        service(new StubWeatherData(true, forecastCalls), List.of(), null, "Lisbon", prompt);
+  void generatesReportAfterWeatherSearchCompletes() {
+    WeatherReportGenerator generator = generatorReturning(coastalResult());
+    WeatherAgentService service = service(generator);
     ByteArrayOutputStream output = captureOutput();
 
     WeatherAgentService.Result result = service.createReport(new WeatherRequest("Lisbon", null));
@@ -52,59 +44,75 @@ class WeatherAgentServiceTest {
     assertEquals(REPORT, result.report());
     assertEquals("stdout", result.delivery());
     assertTrue(output.toString(StandardCharsets.UTF_8).contains(REPORT));
-    assertEquals(1, forecastCalls.get());
-    assertTrue(prompt.get().getContents().contains("search_weather_and_ocean"));
+    verify(generator).generate(anyString(), any(), any(), isNull());
   }
 
   @Test
-  void rejectsInlandLocationAndIncludesNearestCoastalSuggestions() {
-    AtomicInteger forecastCalls = new AtomicInteger();
-    WeatherAgentService service =
-        service(
-            new StubWeatherData(false, forecastCalls),
-            List.of("Porto (4 km from shore)", "Aveiro (2 km from shore)"),
-            null,
-            "Madrid",
-            new AtomicReference<>());
+  void includesRequestedLocationInAiPrompt() {
+    WeatherReportGenerator generator = generatorReturning(coastalResult());
+    WeatherAgentService service = service(generator);
+    ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+
+    service.createReport(new WeatherRequest("Lisbon", null));
+
+    verify(generator).generate(prompt.capture(), any(), any(), isNull());
+    assertTrue(prompt.getValue().contains("Requested location: Lisbon"));
+  }
+
+  @Test
+  void propagatesWeatherSearchFailure() {
+    WeatherAgentService.LocationException failure =
+        new WeatherAgentService.LocationException("Location is not coastal.");
+    WeatherReportGenerator generator = generatorFailing(failure);
+    WeatherAgentService service = service(generator);
 
     WeatherAgentService.LocationException exception =
         assertThrows(
             WeatherAgentService.LocationException.class,
             () -> service.createReport(new WeatherRequest("Madrid", null)));
 
-    assertTrue(exception.getMessage().contains("not within 50 km"));
-    assertTrue(exception.getMessage().contains("Porto"));
-    assertTrue(exception.getMessage().contains("Aveiro"));
-    assertEquals(0, forecastCalls.get());
+    assertSame(failure, exception);
   }
 
   @Test
-  void doesNotClaimEmailDeliveryWhenModelDoesNotInvokeEmailTool() {
-    AtomicReference<SimpleMailMessage> sentMessage = new AtomicReference<>();
-    WeatherAgentService service =
-        service(
-            new StubWeatherData(true, new AtomicInteger()),
-            List.of(),
-            new CapturingMailSender(sentMessage),
-            "Lisbon",
-            new AtomicReference<>());
+  void rejectsReportWhenWeatherSearchWasNotInvoked() {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    when(generator.generate(anyString(), any(), any(), any())).thenReturn(REPORT);
+    WeatherAgentService service = service(generator);
+
+    WeatherAgentService.LocationException exception =
+        assertThrows(
+            WeatherAgentService.LocationException.class,
+            () -> service.createReport(new WeatherRequest("Lisbon", null)));
+
+    assertEquals("The AI did not invoke the weather search tool.", exception.getMessage());
+  }
+
+  @Test
+  void doesNotClaimEmailDeliveryWhenGeneratorDoesNotSendEmail() {
+    WeatherAgentService service = service(generatorReturning(coastalResult()));
 
     WeatherAgentService.Result result =
         service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
 
     assertEquals("email-not-sent", result.delivery());
-    assertNull(sentMessage.get());
+  }
+
+  @Test
+  void reportsSuccessfulEmailDeliveryWhenGeneratorSendsEmail() {
+    WeatherReportGenerator generator = generatorSendingEmail(coastalResult());
+    WeatherAgentService service = service(generator);
+
+    WeatherAgentService.Result result =
+        service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
+
+    assertEquals("email", result.delivery());
+    verify(generator).generate(anyString(), any(), any(), eq("reader@example.com"));
   }
 
   @Test
   void printsReportWhenEmailIsAbsent() {
-    WeatherAgentService service =
-        service(
-            new StubWeatherData(true, new AtomicInteger()),
-            List.of(),
-            null,
-            "Lisbon",
-            new AtomicReference<>());
+    WeatherAgentService service = service(generatorReturning(coastalResult()));
     ByteArrayOutputStream output = captureOutput();
 
     WeatherAgentService.Result result = service.createReport(new WeatherRequest("Lisbon", ""));
@@ -113,117 +121,60 @@ class WeatherAgentServiceTest {
     assertTrue(output.toString(StandardCharsets.UTF_8).contains(REPORT));
   }
 
-  private WeatherAgentService service(
-      WeatherDataClient data,
-      List<String> suggestions,
-      JavaMailSender mail,
-      String requestedLocation,
-      AtomicReference<Prompt> prompt) {
-    WeatherSearchTool searchTool =
-        new WeatherSearchTool(
-            data,
-            new AgentProperties(50, 300, 5, new AgentProperties.Retry(1, 0, 1.0)),
-            location -> suggestions);
-    AtomicInteger modelCalls = new AtomicInteger();
-    ChatModel model =
-        new ChatModel() {
-          @Override
-          public @NonNull ChatResponse call(Prompt request) {
-            prompt.set(request);
-            if (modelCalls.getAndIncrement() == 0) {
-              ToolCallingChatOptions options =
-                  (ToolCallingChatOptions) request.getOptions();
-              ToolCallback searchCallback =
-                  options.getToolCallbacks().stream()
-                      .filter(
-                          callback ->
-                              callback
-                                  .getToolDefinition()
-                                  .name()
-                                  .equals("search_weather_and_ocean"))
-                      .findFirst()
-                      .orElseThrow();
-              searchCallback.call(
-                  "{\"requestedLocation\":\"" + requestedLocation + "\"}",
-                  new ToolContext(options.getToolContext()));
-            }
-            return new ChatResponse(List.of(new Generation(new AssistantMessage(REPORT))));
-          }
+  private static WeatherAgentService service(WeatherReportGenerator generator) {
+    return new WeatherAgentService(generator);
+  }
 
-          @Override
-          public ToolCallingChatOptions getOptions() {
-            return ToolCallingChatOptions.builder().build();
-          }
-        };
-    return new WeatherAgentService(
-        ChatClient.builder(model).build(),
-        searchTool,
-        new EmailTool(new EmailDeliveryService(mail, "")));
+  private static WeatherReportGenerator generatorReturning(
+      WeatherSearchTool.SearchResult searchResult) {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    when(generator.generate(anyString(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              WeatherSearchTool.SearchState state = invocation.getArgument(1);
+              state.succeed(searchResult);
+              return REPORT;
+            });
+    return generator;
+  }
+
+  private static WeatherReportGenerator generatorFailing(RuntimeException failure) {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    when(generator.generate(anyString(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              WeatherSearchTool.SearchState state = invocation.getArgument(1);
+              state.fail(failure);
+              return REPORT;
+            });
+    return generator;
+  }
+
+  private static WeatherReportGenerator generatorSendingEmail(
+      WeatherSearchTool.SearchResult searchResult) {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    when(generator.generate(anyString(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              WeatherSearchTool.SearchState searchState = invocation.getArgument(1);
+              EmailTool.DeliveryState deliveryState = invocation.getArgument(2);
+              searchState.succeed(searchResult);
+              deliveryState.sent();
+              return REPORT;
+            });
+    return generator;
+  }
+
+  private static WeatherSearchTool.SearchResult coastalResult() {
+    GeoLocation location = new GeoLocation("Lisbon", "", "Portugal", 38.7, -9.1);
+    JsonNode weather = JSON.createObjectNode().put("temperature_2m", 18.0);
+    JsonNode marine = JSON.createObjectNode().put("latitude", 38.7).put("longitude", -9.1);
+    return new WeatherSearchTool.SearchResult(location, weather, marine, 0);
   }
 
   private static ByteArrayOutputStream captureOutput() {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     System.setOut(new PrintStream(output, true, StandardCharsets.UTF_8));
     return output;
-  }
-
-  private static class StubWeatherData implements WeatherDataClient {
-    private final boolean coastal;
-    private final AtomicInteger forecastCalls;
-
-    StubWeatherData(boolean coastal, AtomicInteger forecastCalls) {
-      this.coastal = coastal;
-      this.forecastCalls = forecastCalls;
-    }
-
-    @Override
-    public List<GeoLocation> geocode(String query, int count) {
-      return List.of(new GeoLocation(query, "", "Portugal", 38.7, -9.1));
-    }
-
-    @Override
-    public JsonNode marine(double latitude, double longitude) {
-      double marineLatitude = coastal ? latitude : latitude + 2;
-      return JSON.createObjectNode().put("latitude", marineLatitude).put("longitude", longitude);
-    }
-
-    @Override
-    public JsonNode forecast(double latitude, double longitude) {
-      forecastCalls.incrementAndGet();
-      return JSON.createObjectNode().put("temperature_2m", 18.0);
-    }
-  }
-
-  private static class CapturingMailSender implements JavaMailSender {
-    private final AtomicReference<SimpleMailMessage> sentMessage;
-
-    CapturingMailSender(AtomicReference<SimpleMailMessage> sentMessage) {
-      this.sentMessage = sentMessage;
-    }
-
-    @Override
-    public void send(@NonNull SimpleMailMessage message) {
-      sentMessage.set(message);
-    }
-
-    @Override
-    public void send(SimpleMailMessage... messages) {
-      for (SimpleMailMessage message : messages) send(message);
-    }
-
-    @Override
-    public jakarta.mail.internet.@NonNull MimeMessage createMimeMessage() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public jakarta.mail.internet.@NonNull MimeMessage createMimeMessage(java.io.@NonNull InputStream content) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void send(jakarta.mail.internet.MimeMessage @NonNull ... messages) {
-      throw new UnsupportedOperationException();
-    }
   }
 }
