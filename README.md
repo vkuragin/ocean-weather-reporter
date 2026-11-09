@@ -58,7 +58,9 @@ output.
 The nearest marine grid-cell coordinate is used as an approximation of distance to shore. This service is informational;
 marine forecast grids and public geodata are not suitable for navigation or safety decisions.
 
-## TODO
+---
+the following section should not be touched LLMs ever
+## TODO 
 
 - [x] Async post/status
 - [X] Send email as AI tool

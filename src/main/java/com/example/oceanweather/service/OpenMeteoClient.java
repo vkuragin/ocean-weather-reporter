@@ -1,7 +1,7 @@
 package com.example.oceanweather.service;
 
 import com.example.oceanweather.config.OpenMeteoProperties;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.retry.annotation.Backoff;

@@ -3,7 +3,7 @@ package com.example.oceanweather.service;
 import com.example.oceanweather.config.AgentProperties;
 import com.example.oceanweather.model.WeatherRequest;
 import com.example.oceanweather.model.WeatherResponse;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
