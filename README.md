@@ -1,8 +1,10 @@
 # Ocean Weather Reporter
 
-A Java 21 / Spring Boot REST service that geocodes a requested place, checks proximity to marine forecast grid cells,
-fetches weather and ocean conditions, and uses Spring AI with OpenAI to prepare a sourced report. Weather data is from
-Open-Meteo; nearby-place suggestions use OpenStreetMap Overpass.
+An AI Agent (Java 21/Spring Boot) that geocodes a requested place, checks proximity to marine forecast grid cells,
+fetches weather and ocean conditions, and uses Spring AI with OpenAI to prepare a sourced report. 
+Then sends the complete report to the email specified by user. 
+
+Weather data is from Open-Meteo; nearby-place suggestions use OpenStreetMap Overpass.
 
 ## Run
 
