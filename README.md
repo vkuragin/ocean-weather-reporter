@@ -64,7 +64,7 @@ the following section should not be touched LLMs ever
 
 - [x] Async post/status
 - [X] Send email as AI tool
-- [ ] Web search as AI tool
-- [ ] AI Agent controls flow
+- [X] Web search as AI tool
+- [X] AI Agent controls flow
 - [ ] Normalize location name
 - [ ] Store location/date for future similar requests (in-memory?)

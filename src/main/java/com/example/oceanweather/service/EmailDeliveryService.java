@@ -17,7 +17,6 @@ public class EmailDeliveryService {
 
   private static final Logger log = LoggerFactory.getLogger(EmailDeliveryService.class);
 
-  // Mail is optional so the application can still produce console reports without SMTP setup.
   private final JavaMailSender mailSender;
   private final String from;
 
