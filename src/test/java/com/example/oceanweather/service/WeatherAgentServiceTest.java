@@ -1,9 +1,5 @@
 package com.example.oceanweather.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.example.oceanweather.config.AgentProperties;
 import com.example.oceanweather.model.WeatherRequest;
 import java.io.ByteArrayOutputStream;
@@ -12,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -27,6 +25,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class WeatherAgentServiceTest {
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -93,7 +93,7 @@ class WeatherAgentServiceTest {
         service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
 
     assertEquals("email-not-sent", result.delivery());
-    assertEquals(null, sentMessage.get());
+    assertNull(sentMessage.get());
   }
 
   @Test
@@ -128,7 +128,7 @@ class WeatherAgentServiceTest {
     ChatModel model =
         new ChatModel() {
           @Override
-          public ChatResponse call(Prompt request) {
+          public @NonNull ChatResponse call(Prompt request) {
             prompt.set(request);
             if (modelCalls.getAndIncrement() == 0) {
               ToolCallingChatOptions options =
@@ -202,7 +202,7 @@ class WeatherAgentServiceTest {
     }
 
     @Override
-    public void send(SimpleMailMessage message) {
+    public void send(@NonNull SimpleMailMessage message) {
       sentMessage.set(message);
     }
 
@@ -212,17 +212,17 @@ class WeatherAgentServiceTest {
     }
 
     @Override
-    public jakarta.mail.internet.MimeMessage createMimeMessage() {
+    public jakarta.mail.internet.@NonNull MimeMessage createMimeMessage() {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public jakarta.mail.internet.MimeMessage createMimeMessage(java.io.InputStream content) {
+    public jakarta.mail.internet.@NonNull MimeMessage createMimeMessage(java.io.@NonNull InputStream content) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void send(jakarta.mail.internet.MimeMessage... messages) {
+    public void send(jakarta.mail.internet.MimeMessage @NonNull ... messages) {
       throw new UnsupportedOperationException();
     }
   }

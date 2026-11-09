@@ -1,9 +1,5 @@
 package com.example.oceanweather.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import com.example.oceanweather.config.AgentProperties;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ToolContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class WeatherSearchToolTest {
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -41,7 +39,7 @@ class WeatherSearchToolTest {
     assertTrue(result.contains("Porto"));
     assertTrue(result.contains("Aveiro"));
     assertInstanceOf(WeatherAgentService.LocationException.class, state.failure());
-    assertEquals(null, state.result());
+    assertNull(state.result());
   }
 
   private static WeatherSearchTool tool(WeatherDataClient data, List<String> suggestions) {
