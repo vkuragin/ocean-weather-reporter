@@ -68,5 +68,5 @@ the following section should not be touched LLMs ever
 - [X] Send email as AI tool
 - [X] Web search as AI tool
 - [X] AI Agent controls flow
-- [ ] Normalize location name
-- [ ] Store location/date for future similar requests (in-memory?)
+- [X] Normalize location name
+- [X] Store location/date for future similar requests (in-memory?)

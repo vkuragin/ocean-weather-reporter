@@ -8,14 +8,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import dev.vk.oceanweather.model.WeatherRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +48,51 @@ class WeatherAgentServiceTest {
     assertEquals("stdout", result.delivery());
     assertTrue(output.toString(StandardCharsets.UTF_8).contains(REPORT));
     verify(generator).generate(anyString(), any(), any(), isNull());
+  }
+
+  @Test
+  void returnsCachedReportWithoutCallingGenerator() {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    WeatherReportCache cache = mock(WeatherReportCache.class);
+    EmailTool emailTool = mock(EmailTool.class);
+    when(cache.find("Lisbon"))
+        .thenReturn(
+            Optional.of(new WeatherReportCache.CachedReport("Lisbon, Portugal", REPORT)));
+    WeatherAgentService service = new WeatherAgentService(generator, cache, emailTool);
+
+    WeatherAgentService.Result result = service.createReport(new WeatherRequest("Lisbon", null));
+
+    assertEquals("Lisbon, Portugal", result.location());
+    assertEquals(REPORT, result.report());
+    assertEquals("stdout", result.delivery());
+    verifyNoInteractions(generator, emailTool);
+  }
+
+  @Test
+  void sendsEmailForCachedReportWithoutCallingGenerator() {
+    WeatherReportGenerator generator = mock(WeatherReportGenerator.class);
+    WeatherReportCache cache = mock(WeatherReportCache.class);
+    EmailTool emailTool = mock(EmailTool.class);
+    when(cache.find("Lisbon"))
+        .thenReturn(
+            Optional.of(new WeatherReportCache.CachedReport("Lisbon, Portugal", REPORT)));
+    doAnswer(
+            invocation -> {
+              EmailTool.DeliveryState state = invocation.getArgument(3);
+              state.sent();
+              return "Email sent successfully.";
+            })
+        .when(emailTool)
+        .sendReport(anyString(), anyString(), eq("reader@example.com"), any());
+    WeatherAgentService service = new WeatherAgentService(generator, cache, emailTool);
+
+    WeatherAgentService.Result result =
+        service.createReport(new WeatherRequest("Lisbon", "reader@example.com"));
+
+    assertEquals("email", result.delivery());
+    verifyNoInteractions(generator);
+    verify(emailTool)
+        .sendReport(eq("Lisbon, Portugal"), eq(REPORT), eq("reader@example.com"), any());
   }
 
   @Test
@@ -122,7 +170,9 @@ class WeatherAgentServiceTest {
   }
 
   private static WeatherAgentService service(WeatherReportGenerator generator) {
-    return new WeatherAgentService(generator);
+    WeatherReportCache cache = mock(WeatherReportCache.class);
+    when(cache.find(anyString())).thenReturn(Optional.empty());
+    return new WeatherAgentService(generator, cache, mock(EmailTool.class));
   }
 
   private static WeatherReportGenerator generatorReturning(

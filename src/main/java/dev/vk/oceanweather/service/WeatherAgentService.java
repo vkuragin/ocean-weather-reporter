@@ -2,6 +2,7 @@ package dev.vk.oceanweather.service;
 
 import dev.vk.oceanweather.model.WeatherRequest;
 import dev.vk.oceanweather.model.WeatherResponse;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,12 +33,19 @@ public class WeatherAgentService implements WeatherReportAgent {
       """;
 
   private final WeatherReportGenerator reportGenerator;
+  private final WeatherReportCache reportCache;
+  private final EmailTool emailTool;
 
   @Value("${spring.mail.enabled:true}")
   private boolean mailEnabled = true;
 
-  public WeatherAgentService(WeatherReportGenerator reportGenerator) {
+  public WeatherAgentService(
+      WeatherReportGenerator reportGenerator,
+      WeatherReportCache reportCache,
+      EmailTool emailTool) {
     this.reportGenerator = reportGenerator;
+    this.reportCache = reportCache;
+    this.emailTool = emailTool;
   }
 
   @Override
@@ -52,7 +60,23 @@ public class WeatherAgentService implements WeatherReportAgent {
         request.location(),
         request.email() != null);
 
+    // Cache path
     boolean emailRequested = mailEnabled && StringUtils.hasLength(request.email());
+    Optional<WeatherReportCache.CachedReport> cachedReport =
+        reportCache.find(request.location());
+    if (cachedReport.isPresent()) {
+      WeatherReportCache.CachedReport report = cachedReport.get();
+      log.info("Weather report cache hit: location={}", request.location());
+      EmailTool.DeliveryState deliveryState = new EmailTool.DeliveryState();
+      if (emailRequested) {
+        emailTool.sendReport(
+                report.location(), report.report(), request.email(), deliveryState);
+      }
+      String delivery = checkDeliveryState(emailRequested, deliveryState, report.report());
+      return new Result(report.location(), report.report(), delivery);
+    }
+
+    // AI agent path
     String prompt = PROMPT_TEMPLATE.formatted(request.location());
     if (emailRequested) {
       prompt += PROMPT_TEMPLATE_EMAIL;
@@ -72,6 +96,7 @@ public class WeatherAgentService implements WeatherReportAgent {
     }
     String location = searchState.result().location().displayName();
     log.info("Generated report for {}: {}", location, report);
+    reportCache.store(request.location(), location, report);
 
     String delivery = checkDeliveryState(emailRequested, deliveryState, report);
     return new Result(location, report, delivery);

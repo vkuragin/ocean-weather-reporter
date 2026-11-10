@@ -1,8 +1,11 @@
 package dev.vk.oceanweather.config;
 
 import dev.vk.oceanweather.service.EmailTool;
+import dev.vk.oceanweather.service.InMemoryWeatherReportCache;
+import dev.vk.oceanweather.service.WeatherReportCache;
 import dev.vk.oceanweather.service.WeatherReportGenerator;
 import dev.vk.oceanweather.service.WeatherSearchTool;
+import java.time.Clock;
 import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -20,6 +23,16 @@ public class Config {
   @Bean
   public ChatClient openAiChatClient(ChatClient.Builder builder) {
     return builder.build();
+  }
+
+  @Bean
+  public Clock weatherReportCacheClock() {
+    return Clock.systemUTC();
+  }
+
+  @Bean
+  public WeatherReportCache weatherReportCache(Clock weatherReportCacheClock) {
+    return new InMemoryWeatherReportCache(weatherReportCacheClock);
   }
 
   @Bean

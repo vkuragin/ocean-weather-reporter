@@ -25,8 +25,12 @@ public class EmailTool {
       @ToolParam(description = "The complete weather report to send") String report,
       ToolContext toolContext) {
     DeliveryState state = deliveryState(toolContext);
+    return sendReport(location, report, requestedEmail(toolContext), state);
+  }
+
+  public String sendReport(String location, String report, String recipient, DeliveryState state) {
     try {
-      deliveryService.send(location, report, requestedEmail(toolContext));
+      deliveryService.send(location, report, recipient);
       state.sent();
       return "Email sent successfully.";
     } catch (DeliveryException exception) {
