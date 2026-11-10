@@ -1,8 +1,8 @@
 # Ocean Weather Reporter
 
-An AI Agent (Java 21/Spring Boot) that geocodes a requested place, checks proximity to marine forecast grid cells,
+An AI Agent (Java 21/Spring Boot/Spring AI/Open AI) that geocodes a requested place, checks proximity to marine forecast grid cells,
 fetches weather and ocean conditions, and uses Spring AI with OpenAI to prepare a sourced report. 
-Then sends the complete report to the email specified by user. 
+Then sends the complete report to the email specified by user. Generated reports stored in memory in order to eliminate repeated work.
 
 Weather data is from Open-Meteo; nearby-place suggestions use OpenStreetMap Overpass.
 
@@ -61,7 +61,7 @@ The nearest marine grid-cell coordinate is used as an approximation of distance 
 marine forecast grids and public geodata are not suitable for navigation or safety decisions.
 
 ---
-the following section should not be touched LLMs ever
+the following sections should not be touched by LLMs ever
 ## TODO 
 
 - [x] Async post/status
@@ -69,4 +69,4 @@ the following section should not be touched LLMs ever
 - [X] Web search as AI tool
 - [X] AI Agent controls flow
 - [X] Normalize location name
-- [X] Store location/date for future similar requests (in-memory?)
+- [X] Store location/date for future similar requests (in-memory)
